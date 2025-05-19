@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>NDIC Cloud Account Matching System</title>
+  <meta name="viewport" content="width=1024">
+  <meta name="description" content="An Excel-based application with cloud storage that allows users to upload Excel files for account matching, with NDIC branding, batch processing, and cloud-based data management.">
+  <!-- Tailwind CSS via jsdelivr -->
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <!-- Font Awesome via jsdelivr -->
+  <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.2/css/all.min.css" rel="stylesheet">
+  <!-- Google Fonts via jsdelivr -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/inter@5.0.15/index.min.css">
+  <!-- SheetJS Excel parser -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- FileSaver for Excel export -->
+  <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+  <style>
+    html, body {
+      background-color: #f9fafb;
+      font-family: 'Inter', Arial, sans-serif;
+    }
+    /* Hide scrollbars for main container for PDF export */
+    #main-content {
+      overflow: visible !important;
+    }
+    /* Animations */
+    .fade-in {
+      animation: fadeIn 1.2s;
+    }
+    @keyframes fadeIn {
+      from {opacity: 0;}
+      to   {opacity: 1;}
+    }
+    /* Table Styles */
+    table th, table td {
+      border: 1px solid #e5e7eb;
+      padding: 6px 10px;
+      font-size: 14px;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      background-color: #fff;
+    }
+    tr:nth-child(even) {
+      background-color: #f6f6f6;
+    }
+    /* Limit file input expand */
+    .file-input::-webkit-file-upload-button {
+      cursor: pointer;
+    }
+    /* Cloud status indicator */
+    .cloud-status {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      padding-left: 24px;
+    }
+    .cloud-status::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+    .cloud-status.connected::before {
+      background-color: #10b981;
+      box-shadow: 0 0 5px #10b981;
+    }
+    .cloud-status.disconnected::before {
+      background-color: #ef4444;
+      box-shadow: 0 0 5px #ef4444;
+    }
+    .cloud-status.syncing::before {
+      background-color: #f59e0b;
+      box-shadow: 0 0 5px #f59e0b;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0% { opacity: 0.6; }
+      50% { opacity: 1; }
+      100% { opacity: 0.6; }
+    }
+  </style>
+</head>
+<body>
+<div class="min-w-full flex flex-col items-center pt-6 pb-12 px-2" id="main-content">
+  <!-- NDIC Branding Header -->
+  <header class="w-full flex flex-col items-center relative fade-in mb-6">
+    <img src="https://ndic.gov.ng/wp-content/uploads/2020/08/ndic-Logo-1024x433-1.jpg" alt="NDIC Logo" class="h-24 md:h-28 w-auto object-contain mb-2 select-none pointer-events-none" draggable="false" style="user-select: none;">
+    <h1 class="text-2xl md:text-3xl font-bold tracking-tight text-green-800">NDIC Cloud Account Matching System</h1>
+    <span class="text-sm text-gray-500 mt-1 mb-1">Cloud-Enabled Excel Batch Matching & Search</span>
+    <div id="cloudConnectionStatus" class="cloud-status disconnected mt-2">Cloud Storage: Disconnected</div>
+  </header>
+  
+  <!-- Authentication Section -->
+  <section id="authSection" class="w-full max-w-3xl bg-white shadow-lg rounded-xl p-6 mb-6 fade-in">
+    <h2 class="text-lg font-semibold text-green-700 mb-3"><i class="fas fa-lock text-green-500 mr-2"></i>Cloud Authentication</h2>
+    
+    <!-- Login Form (shown when not authenticated) -->
+    <div id="loginForm" class="flex flex-col">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <div>
+          <label for="username" class="block text-sm font-medium text-gray-700 mb-1">Username</label>
+          <input type="text" id="username" class="border border-green-400 rounded w-full px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="NDIC Username">
+        </div>
+        <div>
+          <label for="password" class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+          <input type="password" id="password" class="border border-green-400 rounded w-full px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Password">
+        </div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
+        <div>
+          <label for="orgSelect" class="block text-sm font-medium text-gray-700 mb-1">Organization</label>
+          <select id="orgSelect" class="border border-green-400 rounded w-full px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
+            <option value="ndic-hq">NDIC Headquarters</option>
+            <option value="ndic-lagos">NDIC Lagos Office</option>
+            <option value="ndic-ph">NDIC Port Harcourt Office</option>
+            <option value="ndic-kano">NDIC Kano Office</option>
+            <option value="ndic-enugu">NDIC Enugu Office</option>
+          </select>
+        </div>
+        <div>
+          <label for="storageSelect" class="block text-sm font-medium text-gray-700 mb-1">Cloud Provider</label>
+          <select id="storageSelect" class="border border-green-400 rounded w-full px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
+            <option value="azure">Microsoft Azure</option>
+            <option value="aws">AWS S3</option>
+            <option value="gcs">Google Cloud Storage</option>
+            <option value="local">Local Storage (Offline Mode)</option>
+          </select>
+        </div>
+      </div>
+      <div class="flex justify-between items-center mt-2">
+        <div class="text-sm">
+          <a href="#" class="text-green-600 hover:text-green-800">Forgot password?</a>
+        </div>
+        <button id="loginBtn" class="bg-green-600 hover:bg-green-700 text-white font-bold px-5 py-2 rounded shadow transition" onclick="handleLogin()">
+          <i class="fas fa-sign-in-alt mr-2"></i>Connect to Cloud
+        </button>
+      </div>
+    </div>
+    
+    <!-- User Info (shown when authenticated) -->
+    <div id="userInfo" class="flex items-center justify-between" style="display:none">
+      <div class="flex items-center">
+        <div class="bg-green-100 rounded-full p-3 mr-4">
+          <i class="fas fa-user text-green-600 text-xl"></i>
+        </div>
+        <div>
+          <div class="font-medium" id="userDisplayName">Nneoma O. Kelechi-Uloh</div>
+          <div class="text-sm text-gray-600" id="userRole">NDIC Claims Officer</div>
+          <div class="text-sm text-green-600" id="cloudProvider">Connected to Microsoft Azure</div>
+        </div>
+      </div>
+      <div class="flex items-center">
+        <button id="syncDataBtn" class="bg-blue-50 hover:bg-blue-100 text-blue-800 font-medium px-4 py-2 rounded-lg mr-3 flex items-center">
+          <i class="fas fa-sync-alt mr-2"></i>Sync Data
+        </button>
+        <button id="logoutBtn" class="bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium px-4 py-2 rounded-lg flex items-center" onclick="handleLogout()">
+          <i class="fas fa-sign-out-alt mr-2"></i>Disconnect
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Upload Section -->
+  <section class="w-full max-w-3xl bg-white shadow-lg rounded-xl p-6 mb-6 fade-in" id="uploadSection">
+    <h2 class="text-lg font-semibold text-green-700 mb-3"><i class="fas fa-cloud-upload-alt text-green-500 mr-2"></i>Step 1: Upload Excel Files to Cloud</h2>
+    <div class="flex md:flex-row flex-col space-y-3 md:space-y-0 md:space-x-4 items-start mb-3">
+      <input
+        type="file"
+        id="excelFiles"
+        class="file-input border border-green-400 rounded-md px-3 py-2 bg-green-50 focus:outline-none focus:ring-2 focus:ring-green-500 cursor-pointer"
+        accept=".xlsx,.xls"
+        multiple
+        aria-label="Upload Excel files for cloud storage"
+        style="width:330px"
+        >
+      <span class="text-gray-500 text-xs mt-2 md:mt-0"><i class="fa fa-info-circle mr-1"></i> Files will be uploaded to NDIC secure cloud storage and processed.</span>
+    </div>
+    <div class="flex flex-col sm:flex-row justify-between">
+      <ul id="fileList" class="text-sm mb-1 text-green-800"></ul>
+      <button id="uploadBtn" class="bg-green-600 hover:bg-green-700 text-white font-bold px-5 py-2 rounded shadow flex items-center transition duration-150 mt-2 sm:mt-0" onclick="uploadToCloud()" disabled>
+        <i class="fas fa-cloud-upload-alt mr-2"></i>Upload to Cloud
+      </button>
+    </div>
+    <div class="flex items-center space-x-3 mt-3">
+      <div id="uploadStatus" class="text-sm text-yellow-600"></div>
+      <div class="hidden" id="uploadProgressContainer">
+        <div class="w-full bg-gray-200 rounded-full h-2.5">
+          <div id="uploadProgressBar" class="bg-green-600 h-2.5 rounded-full" style="width: 0%"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+  
+  <!-- Cloud Data Management -->
+  <section class="w-full max-w-3xl bg-white shadow-lg rounded-xl p-6 mb-6 fade-in" id="cloudDataSection">
+    <h2 class="text-lg font-semibold text-green-700 mb-3"><i class="fas fa-database text-green-500 mr-2"></i>Cloud Data Management</h2>
+    
+    <div class="mb-4">
+      <div class="flex justify-between items-center mb-3">
+        <h3 class="text-md font-medium text-gray-700"><i class="fas fa-history text-blue-500 mr-2"></i>File History</h3>
+        <button class="text-sm text-blue-600 hover:text-blue-800" onclick="refreshDataHistory()">
+          <i class="fas fa-sync mr-2"></i>Refresh
+        </button>
+      </div>
+      
+      <div class="bg-gray-50 rounded-lg border border-gray-200 p-1">
+        <table class="min-w-full">
+          <thead>
+            <tr>
+              <th class="bg-gray-100 text-left text-xs font-medium text-gray-600 uppercase tracking-wider py-2 px-3">File Name</th>
+              <th class="bg-gray-100 text-left text-xs font-medium text-gray-600 uppercase tracking-wider py-2 px-3">Upload Date</th>
+              <th class="bg-gray-100 text-left text-xs font-medium text-gray-600 uppercase tracking-wider py-2 px-3">Records</th>
+              <th class="bg-gray-100 text-left text-xs font-medium text-gray-600 uppercase tracking-wider py-2 px-3">Status</th>
+              <th class="bg-gray-100 text-left text-xs font-medium text-gray-600 uppercase tracking-wider py-2 px-3">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="fileHistoryBody" class="divide-y divide-gray-200">
+            <!-- Sample data - this would be populated from cloud storage -->
+            <tr>
+              <td class="py-2 px-3 text-sm">NDIC_Accounts_2023.xlsx</td>
+              <td class="py-2 px-3 text-sm">2023-10-15 14:30</td>
+              <td class="py-2 px-3 text-sm">12,456</td>
+              <td class="py-2 px-3 text-sm"><span class="px-2 py-1 text-xs rounded-full bg-green-100 text-green-800">Active</span></td>
+              <td class="py-2 px-3 text-sm">
+                <button class="text-blue-600 hover:text-blue-800 text-xs mr-2" onclick="useDataset('file1')">Use</button>
+                <button class="text-red-600 hover:text-red-800 text-xs" onclick="confirmDelete('file1')">Remove</button>
+              </td>
+            </tr>
+            <tr>
+              <td class="py-2 px-3 text-sm">Customer_Data_Q2.xlsx</td>
+              <td class="py-2 px-3 text-sm">2023-08-22 09:15</td>
+              <td class="py-2 px-3 text-sm">8,923</td>
+              <td class="py-2 px-3 text-sm"><span class="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">Archived</span></td>
+              <td class="py-2 px-3 text-sm">
+                <button class="text-blue-600 hover:text-blue-800 text-xs mr-2" onclick="useDataset('file2')">Use</button>
+                <button class="text-red-600 hover:text-red-800 text-xs" onclick="confirmDelete('file2')">Remove</button>
+              </td>
+            </tr>
+            <tr>
+              <td class="py-2 px-3 text-sm">Deposit_Records_2022.xlsx</td>
+              <td class="py-2 px-3 text-sm">2022-12-05 16:45</td>
+              <td class="py-2 px-3 text-sm">15,782</td>
+              <td class="py-2 px-3 text-sm"><span class="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">Archived</span></td>
+              <td class="py-2 px-3 text-sm">
+                <button class="text-blue-600 hover:text-blue-800 text-xs mr-2" onclick="useDataset('file3')">Use</button>
+                <button class="text-red-600 hover:text-red-800 text-xs" onclick="confirmDelete('file3')">Remove</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    
+    <div class="flex justify-between items-center">
+      <div class="text-sm text-gray-600">
+        <span id="totalRecords">37,161</span> total records available in cloud storage
+      </div>
+      <div class="flex space-x-2">
+        <button class="bg-red-50 hover:bg-red-100 text-red-700 font-medium text-sm px-4 py-2 rounded" onclick="confirmPurgeData()">
+          <i class="fas fa-trash-alt mr-2"></i>Purge Old Data
+        </button>
+        <button class="bg-blue-50 hover:bg-blue-100 text-blue-700 font-medium text-sm px-4 py-2 rounded" onclick="exportCloudData()">
+          <i class="fas fa-download mr-2"></i>Backup All Data
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Search & Controls -->
+  <section class="w-full max-w-3xl bg-white shadow-lg rounded-xl p-6 mb-6 fade-in">
+    <h3 class="text-lg font-semibold text-green-700 mb-3"><i class="fas fa-search text-green-500 mr-2"></i>Step 2: Search / Batch Match</h3>
+    <div class="text-sm text-blue-600 mb-3" id="activeDatasetInfo">
+      <i class="fas fa-info-circle mr-1"></i>Currently using <span id="datasetName">NDIC_Accounts_2023.xlsx</span> (Active dataset with 12,456 records)
+    </div>
+    <form id="searchForm" class="flex flex-wrap gap-3 items-end mb-4" onsubmit="searchCloudData(event)">
+            <div>
+        <label for="bvnInput" class="block text-sm font-medium text-gray-700">BVN (ICAD_BVN)</label>
+        <input type="text" id="bvnInput" class="border border-green-400 rounded px-3 py-2 w-40 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="e.g. 22134476921">
+      </div>
+      <div>
+        <label for="firstNameInput" class="block text-sm font-medium text-gray-700">First Name</label>
+        <input type="text" id="firstNameInput" class="border border-green-400 rounded px-3 py-2 w-40 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="e.g. Aisha">
+      </div>
+      <div>
+        <label for="lastNameInput" class="block text-sm font-medium text-gray-700">Last Name</label>
+        <input type="text" id="lastNameInput" class="border border-green-400 rounded px-3 py-2 w-40 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="e.g. Musa">
+      </div>
+      <div>
+        <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-bold px-4 py-2 rounded shadow flex items-center transition duration-150">
+          <i class="fas fa-cloud-download-alt mr-2"></i>Search Cloud
+        </button>
+      </div>
+      <div>
+        <button type="button" class="bg-blue-50 hover:bg-blue-100 text-blue-800 font-bold px-4 py-2 rounded shadow flex items-center transition duration-150" onclick="resetFilters()">
+          <i class="fas fa-broom mr-2"></i>Reset Filters
+        </button>
+      </div>
+      <div>
+        <button type="button" class="bg-yellow-400 hover:bg-yellow-500 text-white font-bold px-4 py-2 rounded shadow flex items-center transition duration-150" onclick="openBatchModal()">
+          <i class="fas fa-bolt mr-2"></i>Batch Process
+        </button>
+      </div>
+    </form>
+    <div>
+      <button
+        id="exportBtn"
+        class="bg-green-500 hover:bg-green-700 text-white rounded px-5 py-2 shadow mt-3 font-semibold transition duration-150 flex items-center"
+        onclick="exportToExcel()"
+        style="display:none"
+      >
+        <i class="fas fa-file-excel mr-2"></i>Export Results to Excel
+      </button>
+    </div>
+  </section>
+  
+  <!-- Results Table -->
+  <section class="w-full max-w-7xl overflow-auto bg-white shadow-lg rounded-xl p-6 fade-in mb-6" id="resultsSection" style="display:none">
+    <h4 class="text-lg font-semibold text-green-700 mb-2"><i class="fa fa-table text-green-500 mr-2"></i>Matching Results</h4>
+    <p id="matchSummary" class="text-sm text-gray-600 mb-1"></p>
+    <div class="overflow-auto" style="max-width:100%">
+      <table id="resultsTable" class="mt-2 mb-2 bg-white rounded">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div id="noResults" class="text-center text-red-500 font-medium mt-4" style="display:none">No Matching Records Found</div>
+  </section>
+
+  <!-- Batch Modal -->
+  <div id="batchModalBg" class="fixed inset-0 bg-black bg-opacity-40 z-40 items-center justify-center hidden">
+    <div class="bg-white rounded-xl p-8 shadow-2xl w-full max-w-lg mx-auto fade-in">
+      <h2 class="text-xl font-bold mb-4 text-green-800"><i class="fa fa-bolt text-yellow-500 mr-2"></i>Batch Process from Cloud</h2>
+      <p class="text-sm text-gray-600 mb-4">Process multiple records at once by uploading an Excel file with BVNs or names to match against cloud data.</p>
+      <label for="batchExcelInput" class="block text-sm font-medium text-gray-700 mb-2">Upload Excel file containing <b>BVN(s)</b> or <b>First Name</b> and <b>Last Name</b> columns for batch matching.</label>
+      <input type="file" id="batchExcelInput" accept=".xlsx,.xls" class="mb-4 border border-green-300 rounded px-3 py-2 w-full">
+      
+      <div class="flex items-center space-x-3 mb-4">
+        <div class="flex items-center">
+          <input id="saveResultsCheck" type="checkbox" class="w-4 h-4 text-green-600 border-green-300 rounded focus:ring-green-500">
+          <label for="saveResultsCheck" class="ml-2 text-sm text-gray-700">Save results to cloud history</label>
+        </div>
+        <div class="flex items-center">
+          <input id="notifyCompletionCheck" type="checkbox" class="w-4 h-4 text-green-600 border-green-300 rounded focus:ring-green-500" checked>
+          <label for="notifyCompletionCheck" class="ml-2 text-sm text-gray-700">Email me when complete</label>
+        </div>
+      </div>
+      
+      <div id="batchProcessingStatus" class="mb-3 text-blue-600 text-sm"></div>
+      <div class="flex flex-row justify-end gap-3">
+        <button class="bg-gray-200 px-4 py-2 rounded text-gray-600 font-bold hover:bg-gray-300" onclick="closeBatchModal()">Cancel</button>
+        <button class="bg-green-500 hover:bg-green-700 text-white font-bold px-4 py-2 rounded" onclick="processBatchFile()"><i class="fa fa-play mr-1"></i>Process</button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Credit & Footer -->
+  <footer class="pt-5 flex flex-col items-center text-sm text-gray-500 fade-in w-full">
+    <div class="flex items-center space-x-2 text-gray-800 font-semibold">
+      <span>Nneoma O. Kelechi-Uloh 2025</span>
+      <span class="text-green-800">&copy; NDIC Nigeria</span>
+      <a href="https://ndic.gov.ng/" target="_blank" class="hover:underline text-green-700"><i class="fa fa-globe mr-1"></i>Official Site</a>
+    </div>
+  </footer>
+</div>
+
+<script>
+  // Core data storage
+  let allRecords = [];
+  let currentResults = [];
+  let isAuthenticated = false;
+  let activeDatasetId = null;
+  
+  // NDIC table columns
+  const TABLE_COLS = ["AccountName", "ICAD_BVN", "ClaimNumber", "AccountNumber", "FirstName", "MiddleName", "LastName", "Institution_Name", "InstitutionID", "Category"];
+
+  // ------------------------------------
+  // Cloud Authentication
+  // ------------------------------------
+  function handleLogin() {
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value;
+    const org = document.getElementById('orgSelect').value;
+    const provider = document.getElementById('storageSelect').value;
+    
+    if (!username || !password) {
+      alert("Please enter username and password");
+      return;
+    }
+    
+    // In a real implementation, this would make an API call to authenticate
+    // For demo purposes, we'll simulate a successful login
+    document.getElementById('uploadStatus').textContent = "Authenticating with cloud services...";
+    
+    // Simulate API call with timeout
+    setTimeout(() => {
+      isAuthenticated = true;
+      document.getElementById('loginForm').style.display = 'none';
+      document.getElementById('userInfo').style.display = 'flex';
+      
+      // Update user display info
+      document.getElementById('userDisplayName').textContent = username;
+      document.getElementById('userRole').textContent = `NDIC ${org.split('-')[1].toUpperCase()} Officer`;
+      document.getElementById('cloudProvider').textContent = `Connected to ${getProviderName(provider)}`;
+      
+      // Update connection status
+      updateCloudStatus('connected');
+      
+      // Enable upload button
+      document.getElementById('uploadBtn').disabled = false;
+      
+      // Show welcome message
+      document.getElementById('uploadStatus').textContent = "Authentication successful. Connected to NDIC Cloud Storage.";
+      
+      // Load initial data
+      simulateDataLoading();
+    }, 1500);
+  }
+  
+  function handleLogout() {
+    // In a real implementation, this would clear the session
+    isAuthenticated = false;
+    document.getElementById('loginForm').style.display = 'flex';
+    document.getElementById('userInfo').style.display = 'none';
+    document.getElementById('uploadBtn').disabled = true;
+    updateCloudStatus('disconnected');
+    document.getElementById('uploadStatus').textContent = "Logged out. Disconnected from cloud storage.";
+  }
+  
+  function getProviderName(code) {
+    const providers = {
+      'azure': 'Microsoft Azure',
+      'aws': 'AWS S3',
+      'gcs': 'Google Cloud Storage',
+      'local': 'Local Storage (Offline Mode)'
+    };
+    return providers[code] || 'Cloud Storage';
+  }
+  
+  function updateCloudStatus(status) {
+    const statusElem = document.getElementById('cloudConnectionStatus');
+    statusElem.className = `cloud-status ${status}`;
+    
+    if (status === 'connected') {
+      statusElem.textContent = 'Cloud Storage: Connected';
+    } else if (status === 'disconnected') {
+      statusElem.textContent = 'Cloud Storage: Disconnected';
+    } else if (status === 'syncing') {
+      statusElem.textContent = 'Cloud Storage: Syncing...';
+    }
+  }
+  
+  // ------------------------------------
+  // File Upload & Cloud Processing
+  // ------------------------------------
+  function handleFiles(e) {
+    const files = Array.from(e.target.files).slice(0,5); // max 5 files
+    if (files.length === 0) {
+      document.getElementById('fileList').innerHTML = '';
+      return;
+    }
+    let info = files.map(file => `<li>${file.name} <span class="text-gray-400">(${Math.round(file.size/1024)} KB)</span></li>`).join('');
+    document.getElementById('fileList').innerHTML = info;
+  }
+  
+  function uploadToCloud() {
+    const fileInput = document.getElementById('excelFiles');
+    if (!fileInput.files || fileInput.files.length === 0) {
+      alert("Please select at least one Excel file to upload");
+      return;
+    }
+    
+    if (!isAuthenticated) {
+      alert("Please log in to connect to cloud storage first");
+      return;
+    }
+    
+    const files = Array.from(fileInput.files);
+    document.getElementById('uploadStatus').textContent = "Uploading files to NDIC cloud storage...";
+    
+    // Show progress container
+    const progressContainer = document.getElementById('uploadProgressContainer');
+    const progressBar = document.getElementById('uploadProgressBar');
+    progressContainer.classList.remove('hidden');
+    
+    // Simulate upload progress
+    let progress = 0;
+    const progressInterval = setInterval(() => {
+      progress += 5;
+      if (progress > 100) {
+        clearInterval(progressInterval);
+        progress = 100;
+      }
+      progressBar.style.width = `${progress}%`;
+      
+      if (progress === 100) {
+        setTimeout(() => {
+          // Hide progress after completion
+          progressContainer.classList.add('hidden');
+          
+          // Update status
+          document.getElementById('uploadStatus').textContent = 
+            `Upload complete. ${files.length} file(s) uploaded to NDIC cloud storage. Processing data...`;
+          
+          // Simulate data processing
+          updateCloudStatus('syncing');
+          setTimeout(() => {
+            const recordCount = Math.floor(Math.random() * 10000) + 5000;
+            document.getElementById('uploadStatus').textContent = 
+              `Processing complete. ${recordCount} records extracted and indexed in cloud storage.`;
+            updateCloudStatus('connected');
+            
+            // Refresh data history
+            refreshDataHistory();
+          }, 2000);
+        }, 500);
+      }
+    }, 100);
+  }
+  
+  // ------------------------------------
+  // Cloud Data Management
+  // ------------------------------------
+  function refreshDataHistory() {
+    // In a real implementation, this would fetch data from the cloud API
+    // For demo purposes, we'll use static data with a simulated delay
+    
+    updateCloudStatus('syncing');
+    setTimeout(() => {
+      // Sample data would come from the API
+      updateCloudStatus('connected');
+      document.getElementById('uploadStatus').textContent = "Data history refreshed from cloud storage.";
+      
+      // We'd update the table with real data here
+    }, 800);
+  }
+  
+  function useDataset(datasetId) {
+    updateCloudStatus('syncing');
+    document.getElementById('uploadStatus').textContent = `Loading dataset ${datasetId} from cloud storage...`;
+    
+    // Simulate data loading
+    setTimeout(() => {
+      activeDatasetId = datasetId;
+      updateCloudStatus('connected');
+      document.getElementById('uploadStatus').textContent = `Dataset ${datasetId} activated for searching.`;
+      
+      // Update the active dataset display
+      const datasets = {
+        'file1': { name: 'NDIC_Accounts_2023.xlsx', count: 12456 },
+        'file2': { name: 'Customer_Data_Q2.xlsx', count: 8923 },
+        'file3': { name: 'Deposit_Records_2022.xlsx', count: 15782 }
+      };
+      
+      const dataset = datasets[datasetId];
+      if (dataset) {
+        document.getElementById('datasetName').textContent = dataset.name;
+        document.getElementById('activeDatasetInfo').innerHTML = 
+          `<i class="fas fa-info-circle mr-1"></i>Currently using <span id="datasetName">${dataset.name}</span> (Active dataset with ${dataset.count.toLocaleString()} records)`;
+      }
+      
+      // In a real app, we would load the actual data here
+    }, 1000);
+  }
+  
+  function confirmDelete(datasetId) {
+    if (confirm(`Are you sure you want to remove this dataset from cloud storage? This action cannot be undone.`)) {
+      // In real implementation, would call API to delete
+      document.getElementById('uploadStatus').textContent = `Removing dataset ${datasetId} from cloud storage...`;
+      updateCloudStatus('syncing');
+      
+      setTimeout(() => {
+        document.getElementById('uploadStatus').textContent = `Dataset ${datasetId} has been removed from cloud storage.`;
+        updateCloudStatus('connected');
+        
+        // Would remove the row from the table in real implementation
+      }, 1000);
+    }
+  }
+  
+  function confirmPurgeData() {
+    if (confirm(`Are you sure you want to purge all archived data from cloud storage? This action cannot be undone.`)) {
+      document.getElementById('uploadStatus').textContent = `Purging archived data from cloud storage...`;
+      updateCloudStatus('syncing');
+      
+      setTimeout(() => {
+        document.getElementById('uploadStatus').textContent = `Archived data has been purged from cloud storage.`;
+        updateCloudStatus('connected');
+        
+        // Would update the table in real implementation
+      }, 1500);
+    }
+  }
+  
+  function exportCloudData() {
+    document.getElementById('uploadStatus').textContent = `Preparing cloud data backup...`;
+    updateCloudStatus('syncing');
+    
+    setTimeout(() => {
+      document.getElementById('uploadStatus').textContent = `Cloud data backup ready for download.`;
+      updateCloudStatus('connected');
+      
+      // In a real implementation, this would generate a download from the cloud data
+      setTimeout(() => {
+        // Simulate download trigger
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }, 500);
+    }, 2000);
+  }
+  
+  // ------------------------------------
+  // Search & Batch Processing with Cloud
+  // ------------------------------------
+  function searchCloudData(event) {
+    event.preventDefault();
+    if (!isAuthenticated) {
+      alert("Please connect to cloud storage first");
+      return;
+    }
+    
+    if (!activeDatasetId) {
+      alert("Please select a dataset from cloud storage");
+      return;
+    }
+    
+    const bvnVal = document.getElementById('bvnInput').value.trim();
+    const fnVal = document.getElementById('firstNameInput').value.trim();
+    const lnVal = document.getElementById('lastNameInput').value.trim();
+    
+    if (!bvnVal && !fnVal && !lnVal) {
+      alert("Please enter at least one search criterion");
+      return;
+    }
+    
+    document.getElementById('uploadStatus').textContent = "Searching cloud data...";
+    updateCloudStatus('syncing');
+    
+    // In a real implementation, this would call the cloud API
+    // For demo purposes, we'll simulate the search with mock data
+    setTimeout(() => {
+      // Generate mock results based on input
+      simulateSearchResults(bvnVal, fnVal, lnVal);
+      updateCloudStatus('connected');
+    }, 1200);
+  }
+  
+  function simulateSearchResults(bvn, firstName, lastName) {
+    // Create mock data that would come from the cloud API
+    const mockData = [];
+    const resultCount = Math.floor(Math.random() * 5) + 1; // 1 to 5 results
+    
+    for (let i = 0; i < resultCount; i++) {
+      const record = {
+        AccountName: `${firstName || 'John'} ${lastName || 'Doe'}`.toUpperCase(),
+        ICAD_BVN: bvn || `221344${Math.floor(Math.random() * 100000)}`,
+        ClaimNumber: `CL${Math.floor(Math.random() * 1000000)}`,
+        AccountNumber: `${Math.floor(Math.random() * 10000000000)}`,
+        FirstName: firstName || 'John',
+        MiddleName: ['A', 'B', 'C', 'D', ''][Math.floor(Math.random() * 5)],
+        LastName: lastName || 'Doe',
+        Institution_Name: ['First Bank', 'Zenith Bank', 'Access Bank', 'UBA', 'GTBank'][Math.floor(Math.random() * 5)],
+        InstitutionID: `INS${Math.floor(Math.random() * 1000)}`,
+        Category: ['Savings', 'Current', 'Fixed Deposit'][Math.floor(Math.random() * 3)]
+      };
+      mockData.push(record);
+    }
+    
+    // Use the mockData
+    currentResults = mockData;
+    
+    if (currentResults.length > 0) {
+      document.getElementById('uploadStatus').textContent = `Found ${currentResults.length} matching records in cloud storage.`;
+    } else {
+      document.getElementById('uploadStatus').textContent = "No matching records found in cloud storage.";
+    }
+    
+    renderResults();
+  }
+  
+  function resetFilters() {
+    document.getElementById('searchForm').reset();
+    currentResults = [];
+    document.getElementById('resultsSection').style.display = 'none';
+    document.getElementById('exportBtn').style.display = 'none';
+    document.getElementById('uploadStatus').textContent = "Search filters reset. Ready for new search.";
+  }
+  
+  function renderResults() {
+    const table = document.getElementById('resultsTable');
+    const thead = table.querySelector('thead');
+    const tbody = table.querySelector('tbody');
+    
+    if (currentResults.length === 0) {
+      document.getElementById('resultsSection').style.display = '';
+      document.getElementById('exportBtn').style.display = 'none';
+      thead.innerHTML = '';
+      tbody.innerHTML = '';
+      document.getElementById('noResults').style.display = '';
+      document.getElementById('matchSummary').textContent = '';
+      return;
+    }
+    
+    // Table header
+    thead.innerHTML = `<tr>${TABLE_COLS.map(c=>`<th class="bg-green-50 text-green-900 font-semibold">${c}</th>`).join('')}</tr>`;
+    
+    // Data rows
+    tbody.innerHTML = currentResults.map(row=>
+      `<tr>${TABLE_COLS.map(col=>`<td>${row[col] || ''}</td>`).join('')}</tr>`
+    ).join('');
+    
+    document.getElementById('resultsSection').style.display = '';
+    document.getElementById('noResults').style.display = 'none';
+    document.getElementById('exportBtn').style.display = '';
+    document.getElementById('matchSummary').textContent = 
+      `Showing ${currentResults.length} match(es) from cloud storage. Dataset: ${document.getElementById('datasetName').textContent}`;
+  }
+  
+  // ------------------------------------
+  // Batch Processing with Cloud
+  // ------------------------------------
+  function openBatchModal() {
+    if (!isAuthenticated) {
+      alert("Please connect to cloud storage first");
+      return;
+    }
+    
+    if (!activeDatasetId) {
+      alert("Please select a dataset from cloud storage to use for batch processing");
+      return;
+    }
+    
+    document.getElementById('batchModalBg').style.display = 'flex';
+    document.getElementById('batchExcelInput').value = "";
+    document.getElementById('batchProcessingStatus').textContent = '';
+  }
+  
+  function closeBatchModal() {
+    document.getElementById('batchModalBg').style.display = 'none';
+  }
+  
+  function processBatchFile() {
+    const input = document.getElementById('batchExcelInput');
+    const file = input.files && input.files[0];
+    
+    if (!file) {
+      document.getElementById('batchProcessingStatus').textContent = "Please upload an Excel file.";
+      return;
+    }
+    
+    document.getElementById('batchProcessingStatus').innerHTML = 
+      '<i class="fas fa-spinner fa-spin text-green-600"></i> Uploading batch file to cloud for processing...';
+    
+    const saveResults = document.getElementById('saveResultsCheck').checked;
+    const notifyCompletion = document.getElementById('notifyCompletionCheck').checked;
+    
+    // Simulate file reading and cloud processing
+    setTimeout(() => {
+      document.getElementById('batchProcessingStatus').innerHTML = 
+        '<i class="fas fa-spinner fa-spin text-green-600"></i> Batch file uploaded. Processing matches in cloud...';
+      
+      setTimeout(() => {
+        // In a real implementation, this would process the actual file in the cloud
+        const matchCount = Math.floor(Math.random() * 100) + 20;
+        closeBatchModal();
+        
+        if (saveResults) {
+          document.getElementById('uploadStatus').textContent = 
+            `Batch processing complete. Found ${matchCount} matches. Results saved to cloud storage.`;
+          
+          if (notifyCompletion) {
+            // Would trigger email notification in real implementation
+            setTimeout(() => {
+              alert("Notification email sent with batch results link.");
+            }, 1000);
+          }
+        } else {
+          document.getElementById('uploadStatus').textContent = 
+            `Batch processing complete. Found ${matchCount} matches.`;
+          
+          // Generate sample results for display
+          simulateBatchResults(matchCount);
+        }
+      }, 2000);
+    }, 1500);
+  }
+  
+  function simulateBatchResults(count) {
+    // Create mock batch results
+    const mockResults = [];
+    for (let i = 0; i < count; i++) {
+      const firstName = ['John', 'Mary', 'James', 'Aisha', 'Oluwaseun', 'Ibrahim', 'Ngozi', 'Chinedu'][Math.floor(Math.random() * 8)];
+      const lastName = ['Doe', 'Smith', 'Okafor', 'Mohammed', 'Adebayo', 'Okonkwo', 'Musa', 'Eke'][Math.floor(Math.random() * 8)];
+      
+      mockResults.push({
+        AccountName: `${firstName} ${lastName}`.toUpperCase(),
+        ICAD_BVN: `221344${Math.floor(Math.random() * 100000)}`,
+        ClaimNumber: `CL${Math.floor(Math.random() * 1000000)}`,
+        AccountNumber: `${Math.floor(Math.random() * 10000000000)}`,
+        FirstName: firstName,
+        MiddleName: ['A', 'B', 'C', 'D', ''][Math.floor(Math.random() * 5)],
+        LastName: lastName,
+        Institution_Name: ['First Bank', 'Zenith Bank', 'Access Bank', 'UBA', 'GTBank'][Math.floor(Math.random() * 5)],
+        InstitutionID: `INS${Math.floor(Math.random() * 1000)}`,
+        Category: ['Savings', 'Current', 'Fixed Deposit'][Math.floor(Math.random() * 3)]
+      });
+    }
+    
+    // Use the mock results (limited to 20 for display)
+    currentResults = mockResults.slice(0, 20);
+    renderResults();
+    
+    // Scroll to results
+    setTimeout(()=>window.scrollTo({top:document.getElementById('resultsSection').offsetTop - 20, left:0, behavior:'smooth'}), 350);
+  }
+  
+  // ------------------------------------
+  // Export to Excel
+  // ------------------------------------
+  function exportToExcel() {
+    if (currentResults.length === 0) {
+      alert("No matching data to export.");
+      return;
+    }
+    
+    document.getElementById('uploadStatus').textContent = "Preparing Excel export from cloud data...";
+    
+    // Simulate export preparation
+    setTimeout(() => {
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(currentResults, {header:TABLE_COLS});
+      XLSX.utils.book_append_sheet(wb, ws, "NDIC_Cloud_Matches");
+      const wbout = XLSX.write(wb, {bookType:'xlsx', type:'array'});
+      saveAs(new Blob([wbout],{type:"application/octet-stream"}), "NDIC_Cloud_Matches.xlsx");
+      
+      document.getElementById('uploadStatus').textContent = "Excel export successful.";
+    }, 800);
+  }
+  
+  // ------------------------------------
+  // UI: Modal controls for esc click
+  // ------------------------------------
+  window.addEventListener("keydown", function(e) {
+    if ((e.key === "Escape") && document.getElementById('batchModalBg').style.display==="flex") {
+      closeBatchModal();
+    }
+  });
+  
+  // ------------------------------------
+  // Demo: Simulate initial data loading
+  // ------------------------------------
+  function simulateDataLoading() {
+    setTimeout(() => {
+      // Set the first dataset as active
+      useDataset('file1');
+      
+      // Update total records count
+      document.getElementById('totalRecords').textContent = '37,161';
+    }, 800);
+  }
+</script>
+</body>
+</html>
